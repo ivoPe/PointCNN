@@ -5,6 +5,7 @@ import pointfly as pf
 from datetime import datetime
 import os
 from IPython.display import clear_output
+from funcs_utils import get_batch
 
 
 class Pcnn_classif:
@@ -23,39 +24,55 @@ class Pcnn_classif:
             tf.int32, shape=(None, None, 2), name="indices")
         self.pts_fts = tf.placeholder(tf.float32, shape=(
             None, setting.cloud_point_nb, setting.data_dim), name='point_features')
-        self.labels = tf.placeholder(tf.int32, shape=(None), name='labels')
-        self.one_hot_labels = tf.one_hot(
-            indices=self.labels, depth=setting.num_class, dtype=tf.int32)
+
+        if setting.regression:
+            self.labels = tf.placeholder(tf.float32, shape=(None), name='labels')
+            self.labels_re = tf.reshape(self.labels, (1, -1))
+        else:
+            self.labels = tf.placeholder(tf.int32, shape=(None), name='labels')
+            self.one_hot_labels = tf.one_hot(
+                indices=self.labels, depth=setting.num_class, dtype=tf.int32)
 
         # Net and logits
         self.pts_fts_sampled = tf.gather_nd(
             self.pts_fts, indices=self.indices, name='pts_fts_sampled')
-        self.points_sampled, self.features_sampled = tf.split(
-            self.pts_fts_sampled, [3, setting.data_dim - 3], axis=-1, name='split_points_features')
+        if setting.data_dim > 3:
+            self.points_sampled, self.features_sampled = tf.split(
+                self.pts_fts_sampled, [3, setting.data_dim - 3], axis=-1, name='split_points_features')
+        else:
+            self.points_sampled = self.pts_fts_sampled
+            self.features_sampled = None
         self.net = Net(points=self.points_sampled, features=self.features_sampled,
                        is_training=self.is_training, setting=setting)
         self.logits = self.net.logits
 
         # Losses and Metrics
-        self.labels_tile = tf.tile(
-            self.one_hot_labels, (1, tf.shape(self.logits)[1]), name='labels_tile')
-        self.labels_tile = tf.reshape(self.labels_tile, (tf.shape(
-            self.logits)[0], tf.shape(self.logits)[1], -1))
-        self.probs = tf.nn.softmax(self.logits, name='probs')
-        _, self.predictions = tf.nn.top_k(self.probs, name='predictions')
-        self.labe_accu = tf.reshape(
-            tf.argmax(self.labels_tile, axis=-1), shape=(tf.shape(self.predictions)))
-        self.labe_accu = tf.cast(self.labe_accu, self.predictions.dtype)
-        self.loss_op = tf.losses.softmax_cross_entropy(
-            self.labels_tile, self.logits)
-        _ = tf.summary.scalar(
-            'train/loss', tensor=self.loss_op, collections=['train'])
-        self.mean_accuracy = tf.reduce_mean(
-            tf.cast(tf.equal(self.predictions, self.labe_accu), dtype=tf.float16))
-        _ = tf.summary.scalar(
-            'train/Accuracy', tensor=self.mean_accuracy, collections=['train'])
-        _ = tf.summary.scalar(
-            'val/Accuracy', tensor=self.mean_accuracy, collections=['val'])
+        if setting.regression:
+            self.labels_tile = tf.tile(
+                self.labels_re, (1, tf.shape(self.logits)[1]), name='labels_tile')
+            self.labels_tile = tf.reshape(self.labels_tile, (tf.shape(
+                self.logits)[0], tf.shape(self.logits)[1], -1))
+            self.loss_op = tf.losses.mean_squared_error(self.labels_tile, self.logits)
+            _ = tf.summary.scalar(
+                'MSE', tensor=self.loss_op, collections=['train'])
+        else:
+            self.labels_tile = tf.tile(
+                self.one_hot_labels, (1, tf.shape(self.logits)[1]), name='labels_tile')
+            self.labels_tile = tf.reshape(self.labels_tile, (tf.shape(
+                self.logits)[0], tf.shape(self.logits)[1], -1))
+            self.probs = tf.nn.softmax(self.logits, name='probs')
+            _, self.predictions = tf.nn.top_k(self.probs, name='predictions')
+            self.labe_accu = tf.reshape(
+                tf.argmax(self.labels_tile, axis=-1), shape=(tf.shape(self.predictions)))
+            self.labe_accu = tf.cast(self.labe_accu, self.predictions.dtype)
+            self.loss_op = tf.losses.softmax_cross_entropy(
+                self.labels_tile, self.logits)
+            self.mean_accuracy = tf.reduce_mean(
+                tf.cast(tf.equal(self.predictions, self.labe_accu), dtype=tf.float16))
+            _ = tf.summary.scalar(
+                'Accuracy', tensor=self.mean_accuracy, collections=['train'])
+            _ = tf.summary.scalar(
+                'Softmax cross entropy', tensor=self.loss_op, collections=['train'])
         # Optimizer and training step
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         lr_exp_op = tf.train.exponential_decay(
@@ -76,7 +93,6 @@ class Pcnn_classif:
                 self.loss_op + reg_loss, global_step=self.global_step)
         # Summaries
         self.summaries_op = tf.summary.merge_all('train')
-        self.summaries_val_op = tf.summary.merge_all('val')
         # Finally add graph
         self.graph = tf.get_default_graph()
 
@@ -119,19 +135,20 @@ class Pcnn_classif:
             batch_id_test = get_batch(X_test, batch_size=batch_size,
                                       total_num_el=total_num_el)
 
-        train = [self.train_op, self.loss_op, self.mean_accuracy]
         batch_id = get_batch(X_train, batch_size=batch_size,
                              total_num_el=total_num_el)
-        loss_arr = []
-        acc_arr = []
         all_prints = []
         for count, ba in enumerate(batch_id):
             val_x = X_train[ba]
             val_y = labels_train[ba]
             indi = pf.get_indices(
                 val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
-            _, loss_train, acc_train = sess.run(train, feed_dict={
-                self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+            if self.setting.regression:
+                _, loss_train = sess.run([self.train_op, self.loss_op], feed_dict={
+                    self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+            else:
+                _, loss_train, acc_train = sess.run([self.train_op, self.loss_op, self.mean_accuracy], feed_dict={
+                    self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
             if count % summary_rate == 0:
                 if use_test:
                     # Test summary
@@ -139,19 +156,35 @@ class Pcnn_classif:
                     test_y = labels_test[batch_id_test[count % len(batch_id_test)]]
                     indi_test = pf.get_indices(
                         test_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
-                    suma_test = sess.run(self.summaries_op, feed_dict={
-                        self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
+                    if self.setting.regression:
+                        loss_test, suma_test = sess.run([self.loss_op, self.summaries_op], feed_dict={
+                            self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
+                        # Train summary
+                        suma = sess.run(self.summaries_op, feed_dict={
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                        new_print = '{}-[Val  ]-MSE train: {:.4f}  MSE test: {:.4f}'.format(
+                            datetime.now(), loss_train, loss_test)
+                    else:
+                        acc_test, suma_test = sess.run(self.summaries_op, feed_dict={
+                            self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
+                        # Train summary
+                        suma = sess.run(self.summaries_op, feed_dict={
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                        new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}  Acc test: {:.4f}'.format(
+                            datetime.now(), loss_train, acc_train, acc_test)
+                    # Adding test summary
                     summary_test_writer.add_summary(suma_test, count)
-                    # Train summary
-                    acc_test, suma = sess.run([self.mean_accuracy, self.summaries_op], feed_dict={
-                        self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
-                    new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}  Acc test: {:.4f}'.format(
-                        datetime.now(), loss_train, acc_train, acc_test)
                 else:
-                    suma = sess.run(self.summaries_op, feed_dict={
-                        self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
-                    new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}'.format(
-                        datetime.now(), loss_train, acc_train)
+                    if self.setting.regression:
+                        suma = sess.run(self.summaries_op, feed_dict={
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                        new_print = '{}-[Val  ]-MSE train: {:.4f}'.format(
+                            datetime.now(), loss_train)
+                    else:
+                        suma = sess.run(self.summaries_op, feed_dict={
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                        new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}'.format(
+                            datetime.now(), loss_train, acc_train)
 
                 summary_train_writer.add_summary(suma, count)
 
@@ -161,13 +194,6 @@ class Pcnn_classif:
                 all_prints = all_prints[-5:]
                 for pri in all_prints:
                     print(pri)
-            loss_arr.append([count, loss_train])
-            acc_arr.append([count, acc_train])
-
-        loss_arr = np.array(loss_arr)
-        acc_arr = np.array(acc_arr)
-
-        return loss_arr, acc_arr
 
     def predict(self, sess, X_test, batch_size=16):
         '''
@@ -195,12 +221,17 @@ class Pcnn_classif:
             val_x = test_val[i:i + batch_size]
             indi = pf.get_indices(
                 val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
-            preds, probas = sess.run([self.predictions, self.probs], feed_dict={
-                self.pts_fts: val_x, self.indices: indi, self.is_training: False})
+            if self.setting.regression:
+                preds = sess.run(self.logits, feed_dict={
+                    self.pts_fts: val_x, self.indices: indi, self.is_training: False})
+            else:
+                preds, probas = sess.run([self.predictions, self.probs], feed_dict={
+                    self.pts_fts: val_x, self.indices: indi, self.is_training: False})
+                all_probas.append(probas.reshape(probas.shape[0], probas.shape[-1]))
             all_preds.append(preds.ravel())
-            all_probas.append(probas.reshape(probas.shape[0], probas.shape[-1]))
         all_preds = np.concatenate(all_preds, axis=0)
-        all_probas = np.concatenate(all_probas, axis=0)
+        if self.setting.regression is False:
+            all_probas = np.concatenate(all_probas, axis=0)
 
         return all_preds, all_probas
 
