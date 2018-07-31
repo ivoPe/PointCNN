@@ -14,6 +14,9 @@ class Pcnn_classif:
     '''
 
     def __init__(self, setting):
+        '''
+        setting = Python module containing the config for the net, module
+        '''
         self.setting = setting
         # Placeholders
         self.is_training = tf.placeholder(tf.bool, name='is_training')
@@ -169,7 +172,16 @@ class Pcnn_classif:
 
     def predict(self, sess, X_test, batch_size=16):
         '''
-        Predict labels for X_test.
+        Predict labels and probas for X_test.
+        ----
+        Inputs:
+        sess = Session with trained model, tf.Session
+        X_test = Data test, numpy.array
+        batch_size = Move through test by batch_size step, int
+        ----
+        Outputs:
+        all_preds = Predicted labels, numpy.array
+        all_probas = Predicted probas, numpy.array
         '''
         # Dim prepro
         if len(X_test.shape) == 2:
@@ -193,21 +205,31 @@ class Pcnn_classif:
 
         return all_preds, all_probas
 
-    def save_model(self, sess, save_folder='models'):
+    def save_model(self, sess, save_path='models/model.ckpt'):
         '''
         Save the model using tensorlfow saver and ckpt files.
+        ----
+        Inputs:
+        sess = Session used for training, tf.Session
+        save_path = Path to the saved model, str
+        ----
+        Outputs:
+        None
         '''
-        # Creating the folder if does not exist
-        if os.path.isdir(save_folder) is False:
-            os.mkdir(save_folder)
-
-        save_path = os.path.join(save_folder, 'model.ckpt')
         saver = tf.train.Saver()
         saver.save(sess, save_path)
 
     def load_model(self, sess, save_path='models/model.ckpt'):
         '''
-        Load the model from the save folder.
+        Load the model given by save_path into the session sess.
+        ! A class Pcnn_classif must have been __init__ !
+        ----
+        Inputs:
+        sess = Session to restore model, tf.Session
+        save_path = Path to the saved model, str
+        ----
+        Outputs:
+        None
         '''
         saver = tf.train.Saver()
         saver.restore(sess, save_path)
@@ -215,7 +237,15 @@ class Pcnn_classif:
 
 def get_batch(dataset, batch_size, total_num_el):
     '''
-    Get the indices for the batches for training
+    Get the indices for the batches for training.
+    if total_num_el = n x dataset.shape[0], then n is the number of epoch.
+    ----
+    Inputs:
+    batch_size = Batch size, int
+    total_num_el = How many sample in total to use, int
+    ----
+    Outputs:
+    all_batches = List of indices for the batches, list(numpy.array)
     '''
     ori_num_elements = len(dataset)
     inda = np.arange(ori_num_elements)
