@@ -203,7 +203,7 @@ class Pcnn_classif:
 
         save_path = os.path.join(save_folder, 'model.ckpt')
         saver = tf.train.Saver()
-        backed = saver.save(sess, save_path)
+        saver.save(sess, save_path)
 
     def load_model(self, sess, save_path='models/model.ckpt'):
         '''
