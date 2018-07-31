@@ -3,6 +3,9 @@ from pointcnn_cls import Net
 import numpy as np
 import random
 import pointfly as pf
+from datetime import datetime
+import os
+from IPython.display import clear_output
 
 
 class Pcnn_classif:
@@ -69,7 +72,9 @@ class Pcnn_classif:
         with tf.control_dependencies(update_ops):
             self.train_op = optimizer.minimize(
                 self.loss_op + reg_loss, global_step=self.global_step)
-
+        # Summaries
+        self.summaries_op = tf.summary.merge_all('train')
+        self.summaries_val_op = tf.summary.merge_all('val')
         # Finally add graph
         self.graph = tf.get_default_graph()
 
@@ -81,7 +86,9 @@ class Pcnn_classif:
         sess.run(tf.global_variables_initializer())
         return sess
 
-    def train(self, sess, X_train, labels_train, batch_size, total_num_el):
+    def train(self, sess, X_train, labels_train, batch_size, total_num_el,
+              X_test=None, labels_test=None,
+              summary_folder='tf_summary', summary_rate=10):
         '''
         Train the Network for classification
         ----
@@ -92,11 +99,30 @@ class Pcnn_classif:
         batch_size = Batch size for train, int
         total_num_el = Total number of element to use for training, int
         '''
+        # Initialize the summary folder
+        summary_train_fold = os.path.join(summary_folder, 'train')
+        summary_test_fold = os.path.join(summary_folder, 'test')
+        if os.path.isdir(summary_folder) is False:
+            os.mkdir(summary_folder)
+        if os.path.isdir(summary_train_fold) is False:
+            os.mkdir(summary_train_fold)
+        summary_train_writer = tf.summary.FileWriter(summary_train_fold, sess.graph)
+        # Decide if using Test set or not
+        use_test = False
+        if (X_test is not None) & (labels_test is not None):
+            use_test = True
+            if os.path.isdir(summary_test_fold) is False:
+                os.mkdir(summary_test_fold)
+            summary_test_writer = tf.summary.FileWriter(summary_test_fold, sess.graph)
+            batch_id_test = get_batch(X_test, batch_size=batch_size,
+                                      total_num_el=total_num_el)
+
         train = [self.train_op, self.loss_op, self.mean_accuracy]
         batch_id = get_batch(X_train, batch_size=batch_size,
                              total_num_el=total_num_el)
         loss_arr = []
         acc_arr = []
+        all_prints = []
         for count, ba in enumerate(batch_id):
             val_x = X_train[ba]
             val_y = labels_train[ba]
@@ -104,23 +130,87 @@ class Pcnn_classif:
                 val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
             _, loss_train, acc_train = sess.run(train, feed_dict={
                 self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+            if count % summary_rate == 0:
+                if use_test:
+                    # Test summary
+                    test_x = X_test[batch_id_test[count % len(batch_id_test)]]
+                    test_y = labels_test[batch_id_test[count % len(batch_id_test)]]
+                    indi_test = pf.get_indices(
+                        test_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+                    suma_test = sess.run(self.summaries_op, feed_dict={
+                        self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
+                    summary_test_writer.add_summary(suma_test, count)
+                    # Train summary
+                    acc_test, suma = sess.run([self.mean_accuracy, self.summaries_op], feed_dict={
+                        self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                    new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}  Acc test: {:.4f}'.format(
+                        datetime.now(), loss_train, acc_train, acc_test)
+                else:
+                    suma = sess.run(self.summaries_op, feed_dict={
+                        self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                    new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}'.format(
+                        datetime.now(), loss_train, acc_train)
+
+                summary_train_writer.add_summary(suma, count)
+
+                all_prints.append(new_print)
+                # Only print the last 5
+                clear_output()
+                all_prints = all_prints[-5:]
+                for pri in all_prints:
+                    print(pri)
             loss_arr.append([count, loss_train])
             acc_arr.append([count, acc_train])
+
         loss_arr = np.array(loss_arr)
         acc_arr = np.array(acc_arr)
 
         return loss_arr, acc_arr
 
-    def predict(self, sess, X_test):
+    def predict(self, sess, X_test, batch_size=16):
         '''
         Predict labels for X_test.
         '''
-        indi = pf.get_indices(
-            X_test.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
-        label_pred = sess.run([self.predictions, self.probs], feed_dict={
-            self.pts_fts: X_test, self.indices: indi, self.is_training: False})
+        # Dim prepro
+        if len(X_test.shape) == 2:
+            test_val = np.expand_dims(X_test, axis=0)
+        else:
+            test_val = X_test
 
-        return label_pred
+        pred_size = test_val.shape[0]
+        all_preds = []
+        all_probas = []
+        for i in range(0, pred_size, batch_size):
+            val_x = test_val[i:i + batch_size]
+            indi = pf.get_indices(
+                val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+            preds, probas = sess.run([self.predictions, self.probs], feed_dict={
+                self.pts_fts: val_x, self.indices: indi, self.is_training: False})
+            all_preds.append(preds.ravel())
+            all_probas.append(probas.reshape(probas.shape[0], probas.shape[-1]))
+        all_preds = np.concatenate(all_preds, axis=0)
+        all_probas = np.concatenate(all_probas, axis=0)
+
+        return all_preds, all_probas
+
+    def save_model(self, sess, save_folder='models'):
+        '''
+        Save the model using tensorlfow saver and ckpt files.
+        '''
+        # Creating the folder if does not exist
+        if os.path.isdir(save_folder) is False:
+            os.mkdir(save_folder)
+
+        save_path = os.path.join(save_folder, 'model.ckpt')
+        saver = tf.train.Saver()
+        backed = saver.save(sess, save_path)
+
+    def load_model(self, sess, save_path='models/model.ckpt'):
+        '''
+        Load the model from the save folder.
+        '''
+        saver = tf.train.Saver()
+        saver.restore(sess, save_path)
 
 
 def get_batch(dataset, batch_size, total_num_el):
