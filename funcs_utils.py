@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import itertools
+import random
 
 
 def plot_confusion_matrix(cm, classes,
@@ -34,3 +35,35 @@ def plot_confusion_matrix(cm, classes,
     plt.tight_layout()
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
+
+
+def get_batch(dataset, batch_size, total_num_el):
+    '''
+    Get the indices for the batches for training.
+    if total_num_el = n x dataset.shape[0], then n is the number of epoch.
+    ----
+    Inputs:
+    batch_size = Batch size, int
+    total_num_el = How many sample in total to use, int
+    ----
+    Outputs:
+    all_batches = List of indices for the batches, list(numpy.array)
+    '''
+    ori_num_elements = len(dataset)
+    inda = np.arange(ori_num_elements)
+    all_batches = []
+
+    batch_nb = int(total_num_el / batch_size)
+    one_epoch_batch_nb = int(ori_num_elements / batch_size)
+    iter_nb = max(int(batch_nb / one_epoch_batch_nb), 1)
+
+    for i in range(iter_nb + 1):
+        random.shuffle(inda)
+        new_batches = [inda[u:u + batch_size]
+                       for u in range(0, len(dataset), batch_size)]
+        if new_batches[-1].shape[0] == batch_size:
+            all_batches += new_batches
+        else:
+            all_batches += new_batches[:-1]
+
+    return all_batches

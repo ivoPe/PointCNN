@@ -5,3 +5,4 @@ sampling/
 data/
 *.pyc
 *.so
+*ipynb_checkpoints
