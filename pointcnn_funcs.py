@@ -26,7 +26,8 @@ class Pcnn_classif:
             None, setting.cloud_point_nb, setting.data_dim), name='point_features')
 
         if setting.regression:
-            self.labels = tf.placeholder(tf.float32, shape=(None), name='labels')
+            self.labels = tf.placeholder(
+                tf.float32, shape=(None), name='labels')
             self.labels_re = tf.reshape(self.labels, (1, -1))
         else:
             self.labels = tf.placeholder(tf.int32, shape=(None), name='labels')
@@ -52,7 +53,8 @@ class Pcnn_classif:
                 self.labels_re, (1, tf.shape(self.logits)[1]), name='labels_tile')
             self.labels_tile = tf.reshape(self.labels_tile, (tf.shape(
                 self.logits)[0], tf.shape(self.logits)[1], -1))
-            self.loss_op = tf.losses.mean_squared_error(self.labels_tile, self.logits)
+            self.loss_op = tf.losses.mean_squared_error(
+                self.labels_tile, self.logits)
             _ = tf.summary.scalar(
                 'MSE', tensor=self.loss_op, collections=['train'])
         else:
@@ -72,7 +74,7 @@ class Pcnn_classif:
             _ = tf.summary.scalar(
                 'Accuracy', tensor=self.mean_accuracy, collections=['train'])
             _ = tf.summary.scalar(
-                'Softmax cross entropy', tensor=self.loss_op, collections=['train'])
+                'Softmax_cross_entropy', tensor=self.loss_op, collections=['train'])
         # Optimizer and training step
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
         lr_exp_op = tf.train.exponential_decay(
@@ -124,14 +126,16 @@ class Pcnn_classif:
             os.mkdir(summary_folder)
         if os.path.isdir(summary_train_fold) is False:
             os.mkdir(summary_train_fold)
-        summary_train_writer = tf.summary.FileWriter(summary_train_fold, sess.graph)
+        summary_train_writer = tf.summary.FileWriter(
+            summary_train_fold, sess.graph)
         # Decide if using Test set or not
         use_test = False
         if (X_test is not None) & (labels_test is not None):
             use_test = True
             if os.path.isdir(summary_test_fold) is False:
                 os.mkdir(summary_test_fold)
-            summary_test_writer = tf.summary.FileWriter(summary_test_fold, sess.graph)
+            summary_test_writer = tf.summary.FileWriter(
+                summary_test_fold, sess.graph)
             batch_id_test = get_batch(X_test, batch_size=batch_size,
                                       total_num_el=total_num_el)
 
@@ -153,7 +157,8 @@ class Pcnn_classif:
                 if use_test:
                     # Test summary
                     test_x = X_test[batch_id_test[count % len(batch_id_test)]]
-                    test_y = labels_test[batch_id_test[count % len(batch_id_test)]]
+                    test_y = labels_test[batch_id_test[count %
+                                                       len(batch_id_test)]]
                     indi_test = pf.get_indices(
                         test_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
                     if self.setting.regression:
@@ -165,7 +170,7 @@ class Pcnn_classif:
                         new_print = '{}-[Val  ]-MSE train: {:.4f}  MSE test: {:.4f}'.format(
                             datetime.now(), loss_train, loss_test)
                     else:
-                        acc_test, suma_test = sess.run(self.summaries_op, feed_dict={
+                        acc_test, suma_test = sess.run([self.mean_accuracy, self.summaries_op], feed_dict={
                             self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
                         # Train summary
                         suma = sess.run(self.summaries_op, feed_dict={
@@ -227,7 +232,8 @@ class Pcnn_classif:
             else:
                 preds, probas = sess.run([self.predictions, self.probs], feed_dict={
                     self.pts_fts: val_x, self.indices: indi, self.is_training: False})
-                all_probas.append(probas.reshape(probas.shape[0], probas.shape[-1]))
+                all_probas.append(probas.reshape(
+                    probas.shape[0], probas.shape[-1]))
             all_preds.append(preds.ravel())
         all_preds = np.concatenate(all_preds, axis=0)
         if self.setting.regression is False:
