@@ -17,6 +17,9 @@ class Pcnn_classif:
         '''
         setting = Python module containing the config for the net, module
         '''
+        # Sampling indices for prediction
+        self.indi_pred = None
+        # General settings
         self.setting = setting
         # Placeholders
         self.is_training = tf.placeholder(tf.bool, name='is_training')
@@ -231,14 +234,21 @@ class Pcnn_classif:
         all_probas = []
         for i in range(0, pred_size, batch_size):
             val_x = test_val[i:i + batch_size]
-            indi = pf.get_indices(
-                val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+            # We want to keep the same sampled points (idi_pred) for constant prediction results
+            if self.indi_pred is None:
+                indi = pf.get_indices(
+                    val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+                self.indi_pred = indi
+            elif self.indi_pred.shape[:-1] != val_x.shape[:-1]:
+                indi = pf.get_indices(
+                    val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+                self.indi_pred = indi
             if self.setting.regression:
                 preds = sess.run(self.logits, feed_dict={
-                    self.pts_fts: val_x, self.indices: indi, self.is_training: False})
+                    self.pts_fts: val_x, self.indices: self.indi_pred, self.is_training: False})
             else:
                 preds, probas = sess.run([self.predictions, self.probs], feed_dict={
-                    self.pts_fts: val_x, self.indices: indi, self.is_training: False})
+                    self.pts_fts: val_x, self.indices: self.indi_pred, self.is_training: False})
                 all_probas.append(probas.reshape(
                     probas.shape[0], probas.shape[-1]))
             all_preds.append(preds.ravel())
