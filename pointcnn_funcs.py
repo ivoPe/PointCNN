@@ -55,8 +55,15 @@ class Pcnn_classif:
                 self.logits)[0], tf.shape(self.logits)[1], -1))
             self.loss_op = tf.losses.mean_squared_error(
                 self.labels_tile, self.logits)
+            self.total_error = tf.reduce_sum(
+                tf.square(tf.subtract(self.labels_tile, tf.reduce_mean(self.labels_tile))))
+            self.unexplained_error = tf.reduce_sum(
+                tf.square(tf.subtract(self.labels_tile, self.logits)))
+            self.R_squared = tf.subtract(1., tf.div(self.unexplained_error, self.total_error))
             _ = tf.summary.scalar(
                 'MSE', tensor=self.loss_op, collections=['train'])
+            _ = tf.summary.scalar(
+                'R2', tensor=self.R_squared, collections=['train'])
         else:
             self.labels_tile = tf.tile(
                 self.one_hot_labels, (1, tf.shape(self.logits)[1]), name='labels_tile')
