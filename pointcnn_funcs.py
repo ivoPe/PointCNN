@@ -235,14 +235,7 @@ class Pcnn_classif:
         for i in range(0, pred_size, batch_size):
             val_x = test_val[i:i + batch_size]
             # We want to keep the same sampled points (idi_pred) for constant prediction results
-            if self.indi_pred is None:
-                indi = pf.get_indices(
-                    val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
-                self.indi_pred = indi
-            elif self.indi_pred.shape[:-1] != val_x.shape[:-1]:
-                indi = pf.get_indices(
-                    val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
-                self.indi_pred = indi
+            self._chek_indi_pred(val_x)
             if self.setting.regression:
                 preds = sess.run(self.logits, feed_dict={
                     self.pts_fts: val_x, self.indices: self.indi_pred, self.is_training: False})
@@ -257,6 +250,31 @@ class Pcnn_classif:
             all_probas = np.concatenate(all_probas, axis=0)
 
         return all_preds, all_probas
+
+    def get_intermediate_ptfts(self, sess, one_cloud_point):
+        '''
+        Get the intermediate points for one cloud of points corresponding to
+        one sample.
+        ----
+        Inputs:
+        sess = Session with trained model, tf.Session
+        one_cloud_point = One cloud of points, numpy.array
+        ----
+        Outputs:
+        '''
+        one_cloud = one_cloud_point.copy()
+        # Shape check
+        if len(one_cloud.shape) == 2:
+            one_cloud = np.expand_dims(one_cloud, axis=0)
+        # First check the indices to be sampled
+        self._chek_indi_pred(one_cloud)
+        # Defining the layers to get
+        proba, logits, layer_points, layer_fts = sess.run(
+            [self.probs, self.logits, self.net.layer_pts, self.net.layer_fts],
+            feed_dict={self.pts_fts: one_cloud,
+                       self.indices: self.indi_pred, self.is_training: True}
+        )
+        return proba, logits, layer_points, layer_fts
 
     def save_model(self, sess, save_path='models/model.ckpt'):
         '''
@@ -286,3 +304,16 @@ class Pcnn_classif:
         '''
         saver = tf.train.Saver()
         saver.restore(sess, save_path)
+
+    def _chek_indi_pred(self, val_x):
+        '''
+        Check if we need to change the sampled points.
+        '''
+        if self.indi_pred is None:
+            indi = pf.get_indices(
+                val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+            self.indi_pred = indi
+        elif self.indi_pred.shape[:-1] != val_x.shape[:-1]:
+            indi = pf.get_indices(
+                val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+            self.indi_pred = indi
