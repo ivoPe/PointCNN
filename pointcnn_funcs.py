@@ -269,11 +269,19 @@ class Pcnn_classif:
         # First check the indices to be sampled
         self._chek_indi_pred(one_cloud)
         # Defining the layers to get
-        proba, logits, layer_points, layer_fts = sess.run(
-            [self.probs, self.logits, self.net.layer_pts, self.net.layer_fts],
-            feed_dict={self.pts_fts: one_cloud,
-                       self.indices: self.indi_pred, self.is_training: True}
-        )
+        if self.setting.regression:
+            proba = None
+            logits, layer_points, layer_fts = sess.run(
+                [self.logits, self.net.layer_pts, self.net.layer_fts],
+                feed_dict={self.pts_fts: one_cloud,
+                           self.indices: self.indi_pred, self.is_training: False})
+        else:
+            proba, logits, layer_points, layer_fts = sess.run(
+                [self.probs, self.logits, self.net.layer_pts, self.net.layer_fts],
+                feed_dict={self.pts_fts: one_cloud,
+                           self.indices: self.indi_pred, self.is_training: True}
+            )
+
         return proba, logits, layer_points, layer_fts
 
     def save_model(self, sess, save_path='models/model.ckpt'):
