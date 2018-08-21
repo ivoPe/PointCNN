@@ -25,7 +25,7 @@ def get_indices(batch_size, sample_num, point_num, pool_setting=None):
             if isinstance(pool_setting, int):
                 pool_size = min(pool_setting, pt_num)
             elif isinstance(pool_setting, tuple):
-                pool_size = min(random.randrange(pool_setting[0], pool_setting[1]+1), pt_num)
+                pool_size = min(random.randrange(pool_setting[0], pool_setting[1] + 1), pt_num)
         if pool_size > sample_num:
             choices = np.random.choice(pool_size, sample_num, replace=False)
         else:
@@ -97,7 +97,8 @@ def augment(points, xforms, range=None):
         return points_xformed
 
     jitter_data = range * tf.random_normal(tf.shape(points_xformed), name='jitter_data')
-    jitter_clipped = tf.clip_by_value(jitter_data, -5 * range, 5 * range, name='jitter_clipped')
+    jitter_clipped = tf.clip_by_value(
+        jitter_data, -5 * range[0], 5 * range[0], name='jitter_clipped')
     return points_xformed + jitter_clipped
 
 
@@ -141,7 +142,7 @@ def find_duplicate_columns(A):
 # add a big value to duplicate columns
 def prepare_for_unique_top_k(D, A):
     indices_duplicated = tf.py_func(find_duplicate_columns, [A], tf.int32)
-    D += tf.reduce_max(D)*tf.cast(indices_duplicated, tf.float32)
+    D += tf.reduce_max(D) * tf.cast(indices_duplicated, tf.float32)
 
 
 # return shape is (N, P, K, 2)
@@ -190,13 +191,15 @@ def sort_points(points, indices, sorting_method):
         epsilon = 1e-8
         nn_pts_min = tf.reduce_min(nn_pts, axis=2, keep_dims=True)
         nn_pts_max = tf.reduce_max(nn_pts, axis=2, keep_dims=True)
-        nn_pts_normalized = (nn_pts - nn_pts_min) / (nn_pts_max - nn_pts_min + epsilon)  # (N, P, K, 3)
+        nn_pts_normalized = (nn_pts - nn_pts_min) / (nn_pts_max -
+                                                     nn_pts_min + epsilon)  # (N, P, K, 3)
         scaling_factors = [math.pow(100.0, 3 - sorting_method.find('x')),
                            math.pow(100.0, 3 - sorting_method.find('y')),
                            math.pow(100.0, 3 - sorting_method.find('z'))]
         scaling = tf.constant(scaling_factors, shape=(1, 1, 1, 3))
         sorting_data = tf.reduce_sum(nn_pts_normalized * scaling, axis=-1)  # (N, P, K)
-        sorting_data = tf.concat([tf.zeros((batch_size, point_num, 1)), sorting_data[:, :, 1:]], axis=-1)
+        sorting_data = tf.concat([tf.zeros((batch_size, point_num, 1)),
+                                  sorting_data[:, :, 1:]], axis=-1)
     elif sorting_method == 'l2':
         nn_pts_center = tf.reduce_mean(nn_pts, axis=2, keep_dims=True)  # (N, P, 1, 3)
         nn_pts_local = tf.subtract(nn_pts, nn_pts_center)  # (N, P, K, 3)
@@ -208,7 +211,8 @@ def sort_points(points, indices, sorting_method):
     batch_indices = tf.tile(tf.reshape(tf.range(batch_size), (-1, 1, 1, 1)), (1, point_num, k, 1))
     point_indices = tf.tile(tf.reshape(tf.range(point_num), (1, -1, 1, 1)), (batch_size, 1, k, 1))
     k_indices_4d = tf.expand_dims(k_indices, axis=3)
-    sorting_indices = tf.concat([batch_indices, point_indices, k_indices_4d], axis=3)  # (N, P, K, 3)
+    sorting_indices = tf.concat(
+        [batch_indices, point_indices, k_indices_4d], axis=3)  # (N, P, K, 3)
     return tf.gather_nd(indices, sorting_indices)
 
 
@@ -218,8 +222,8 @@ def sort_points(points, indices, sorting_method):
 # a(ei − fh) − b(di − fg) + c(dh − eg)
 def compute_determinant(A):
     return A[..., 0, 0] * (A[..., 1, 1] * A[..., 2, 2] - A[..., 1, 2] * A[..., 2, 1]) \
-           - A[..., 0, 1] * (A[..., 1, 0] * A[..., 2, 2] - A[..., 1, 2] * A[..., 2, 0]) \
-           + A[..., 0, 2] * (A[..., 1, 0] * A[..., 2, 1] - A[..., 1, 1] * A[..., 2, 0])
+        - A[..., 0, 1] * (A[..., 1, 0] * A[..., 2, 2] - A[..., 1, 2] * A[..., 2, 0]) \
+        + A[..., 0, 2] * (A[..., 1, 0] * A[..., 2, 1] - A[..., 1, 1] * A[..., 2, 0])
 
 
 # A shape is (N, P, 3, 3)
@@ -297,8 +301,10 @@ def inverse_density_sampling(points, k, sample_num):
 
 def batch_normalization(data, is_training, name, reuse=None):
     return tf.layers.batch_normalization(data, momentum=0.99, training=is_training,
-                                         beta_regularizer=tf.contrib.layers.l2_regularizer(scale=1.0),
-                                         gamma_regularizer=tf.contrib.layers.l2_regularizer(scale=1.0),
+                                         beta_regularizer=tf.contrib.layers.l2_regularizer(
+                                             scale=1.0),
+                                         gamma_regularizer=tf.contrib.layers.l2_regularizer(
+                                             scale=1.0),
                                          reuse=reuse, name=name)
 
 
@@ -309,8 +315,10 @@ def separable_conv2d(input, output, name, is_training, kernel_size, depth_multip
                                         depth_multiplier=depth_multiplier,
                                         depthwise_initializer=tf.glorot_normal_initializer(),
                                         pointwise_initializer=tf.glorot_normal_initializer(),
-                                        depthwise_regularizer=tf.contrib.layers.l2_regularizer(scale=1.0),
-                                        pointwise_regularizer=tf.contrib.layers.l2_regularizer(scale=1.0),
+                                        depthwise_regularizer=tf.contrib.layers.l2_regularizer(
+                                            scale=1.0),
+                                        pointwise_regularizer=tf.contrib.layers.l2_regularizer(
+                                            scale=1.0),
                                         reuse=reuse, name=name, use_bias=not with_bn)
     return batch_normalization(conv2d, is_training, name + '_bn', reuse) if with_bn else conv2d
 
@@ -321,7 +329,8 @@ def depthwise_conv2d(input, depth_multiplier, name, is_training, kernel_size,
                                                 activation_fn=activation,
                                                 depth_multiplier=depth_multiplier,
                                                 weights_initializer=tf.glorot_normal_initializer(),
-                                                weights_regularizer=tf.contrib.layers.l2_regularizer(scale=1.0),
+                                                weights_regularizer=tf.contrib.layers.l2_regularizer(
+                                                    scale=1.0),
                                                 biases_initializer=None if with_bn else tf.zeros_initializer(),
                                                 biases_regularizer=None if with_bn else tf.contrib.layers.l2_regularizer(
                                                     scale=1.0),
