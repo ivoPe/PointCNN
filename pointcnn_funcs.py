@@ -27,6 +27,8 @@ class Pcnn_classif:
             tf.int32, shape=(None, None, 2), name="indices")
         self.pts_fts = tf.placeholder(tf.float32, shape=(
             None, setting.cloud_point_nb, setting.data_dim), name='point_features')
+        self.xforms = tf.placeholder(tf.float32, shape=(None, 3, 3), name="xforms")
+        self.jitter_range = tf.placeholder(tf.float32, shape=(1), name="jitter_range")
 
         if setting.regression:
             self.labels = tf.placeholder(
@@ -46,7 +48,11 @@ class Pcnn_classif:
         else:
             self.points_sampled = self.pts_fts_sampled
             self.features_sampled = None
-        self.net = Net(points=self.points_sampled, features=self.features_sampled,
+        if self.is_training == tf.constant(True):
+            self.points_augmented = pf.augment(self.points_sampled, self.xforms, self.jitter_range)
+        else:
+            self.points_augmented = self.points_sampled
+        self.net = Net(points=self.points_augmented, features=self.features_sampled,
                        is_training=self.is_training, setting=setting)
         self.logits = self.net.logits
 
@@ -157,12 +163,19 @@ class Pcnn_classif:
             val_y = labels_train[ba]
             indi = pf.get_indices(
                 val_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+
+            xforms_np, rotations_np = pf.get_xforms(batch_size,
+                                                    rotation_range=self.setting.rotation_range,
+                                                    scaling_range=self.setting.scaling_range,
+                                                    order=self.setting.rotation_order)
             if self.setting.regression:
                 _, loss_train = sess.run([self.train_op, self.loss_op], feed_dict={
-                    self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                    self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.xforms: xforms_np,
+                    self.jitter_range: np.array([self.setting.jitter]), self.is_training: True})
             else:
                 _, loss_train, acc_train = sess.run([self.train_op, self.loss_op, self.mean_accuracy], feed_dict={
-                    self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                    self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.xforms: xforms_np,
+                    self.jitter_range: np.array([self.setting.jitter]), self.is_training: True})
             if count % summary_rate == 0:
                 if use_test:
                     # Test summary
@@ -171,12 +184,18 @@ class Pcnn_classif:
                                                        len(batch_id_test)]]
                     indi_test = pf.get_indices(
                         test_x.shape[0], self.setting.sample_num, self.setting.cloud_point_nb, pool_setting=None)
+                    xforms_te, rotations_te = pf.get_xforms(batch_size,
+                                                            rotation_range=self.setting.rotation_range_val,
+                                                            scaling_range=self.setting.scaling_range_val,
+                                                            order=self.setting.rotation_order)
                     if self.setting.regression:
                         loss_test, suma_test = sess.run([self.loss_op, self.summaries_op], feed_dict={
-                            self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
+                            self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.xforms: xforms_te,
+                            self.jitter_range: np.array([self.setting.jitter_val]), self.is_training: True})
                         # Train summary
                         suma = sess.run(self.summaries_op, feed_dict={
-                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.xforms: xforms_np,
+                            self.jitter_range: np.array([self.setting.jitter]), self.is_training: True})
                         new_print = '{}-[Val  ]-MSE train: {:.4f}  MSE test: {:.4f}'.format(
                             datetime.now(), loss_train, loss_test)
                     else:
@@ -184,7 +203,8 @@ class Pcnn_classif:
                             self.pts_fts: test_x, self.labels: test_y, self.indices: indi_test, self.is_training: True})
                         # Train summary
                         suma = sess.run(self.summaries_op, feed_dict={
-                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.xforms: xforms_np,
+                            self.jitter_range: np.array([self.setting.jitter]), self.is_training: True})
                         new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}  Acc test: {:.4f}'.format(
                             datetime.now(), loss_train, acc_train, acc_test)
                     # Adding test summary
@@ -192,12 +212,14 @@ class Pcnn_classif:
                 else:
                     if self.setting.regression:
                         suma = sess.run(self.summaries_op, feed_dict={
-                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.xforms: xforms_np,
+                            self.jitter_range: np.array([self.setting.jitter]), self.is_training: True})
                         new_print = '{}-[Val  ]-MSE train: {:.4f}'.format(
                             datetime.now(), loss_train)
                     else:
                         suma = sess.run(self.summaries_op, feed_dict={
-                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.is_training: True})
+                            self.pts_fts: val_x, self.labels: val_y, self.indices: indi, self.xforms: xforms_np,
+                            self.jitter_range: np.array([self.setting.jitter]), self.is_training: True})
                         new_print = '{}-[Val  ]-Loss: {:.4f}  Acc train: {:.4f}'.format(
                             datetime.now(), loss_train, acc_train)
 
@@ -279,7 +301,7 @@ class Pcnn_classif:
             proba, logits, layer_points, layer_fts = sess.run(
                 [self.probs, self.logits, self.net.layer_pts, self.net.layer_fts],
                 feed_dict={self.pts_fts: one_cloud,
-                           self.indices: self.indi_pred, self.is_training: True}
+                           self.indices: self.indi_pred, self.is_training: False}
             )
 
         return proba, logits, layer_points, layer_fts
