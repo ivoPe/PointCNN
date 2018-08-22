@@ -1,0 +1,5 @@
+FROM tensorflow/tensorflow:latest-py3
+
+RUN pip install plyfile \
+                transforms3d \
+                plotly

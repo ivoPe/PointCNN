@@ -6,7 +6,10 @@ Created by <a href="http://yangyan.li" target="_blank">Yangyan Li</a>,<a href="h
 A docker file specifies the package used to run the model. To be run on **nvidia-docker** to use GPU.
 ```bash
 cd PointCNN
+# For GPU version
 docker build -t pointcnn .
+# For CPU version
+docker build -f DockerfileCpu -t pointcnn .
 ```
 
 ## Tutorial
